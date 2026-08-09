@@ -50,12 +50,25 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device} | Backbone: {cfg.backbone}")
 
-    loaders = build_dataloaders(cfg.data_root, cfg.image_size, cfg.batch_size, cfg.num_workers)
+    loaders = build_dataloaders(
+        cfg.data_root, cfg.image_size, cfg.batch_size, cfg.num_workers,
+        val_split=cfg.val_split, seed=cfg.seed,
+    )
     if "train" not in loaders:
         raise FileNotFoundError(
             f"학습 데이터를 찾을 수 없습니다: {cfg.data_root}/train\n"
             "Kaggle 'Retinal OCT Images'를 내려받아 data/OCT2017 에 풀어주세요."
         )
+
+    # 폴더 순서(=실제 라벨 순서)와 config 의 CLASS_NAMES 가 어긋나면 리포트 라벨이 통째로 밀립니다.
+    class_names = loaders["train"].dataset.classes
+    if class_names != cfg.class_names:
+        print(f"⚠️  config.CLASS_NAMES {cfg.class_names} != 폴더 순서 {class_names} — 폴더 순서를 사용합니다.")
+
+    val_source = f"train 에서 분리 ({cfg.val_split:.0%}, 환자 단위)" if cfg.val_split > 0 else "공식 val/ 폴더"
+    for split in ("train", "val", "test"):
+        if split in loaders:
+            print(f"  {split}: {len(loaders[split].dataset):,}장" + (f"  [{val_source}]" if split == "val" else ""))
 
     model = build_model(cfg.backbone, cfg.num_classes, cfg.pretrained).to(device)
     criterion = nn.CrossEntropyLoss()
@@ -88,7 +101,7 @@ def main() -> None:
             best_val_acc = val_acc
             torch.save(
                 {"state_dict": model.state_dict(), "backbone": cfg.backbone,
-                 "class_names": loaders["train"].dataset.classes},
+                 "class_names": class_names},
                 cfg.output_dir / "best_model.pt",
             )
             print(f"  ↳ best 모델 저장 (val_acc={val_acc:.4f})")
