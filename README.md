@@ -29,16 +29,28 @@ src/
   model.py    # timm 전이학습 모델
   train.py    # 학습 루프 + 평가 리포트
 app.py        # Streamlit 데모 (분류 + Grad-CAM)
+scripts/make_dummy_data.py      # 스모크 테스트용 가짜 데이터 생성
 notebooks/colab_quickstart.md   # Colab 실행 가이드
 ```
 
 ## 빠른 시작
-1. **학습 (Colab)**: [notebooks/colab_quickstart.md](notebooks/colab_quickstart.md) 참고
-2. **데모 (로컬)**:
+1. **스모크 테스트** — 데이터 없이 파이프라인만 1분 안에 검증:
    ```bash
    pip install -r requirements.txt
+   python scripts/make_dummy_data.py
+   python -m src.train --data-root data/dummy --smoke --no-pretrained
+   ```
+2. **학습 (Colab)**: [notebooks/colab_quickstart.md](notebooks/colab_quickstart.md) 참고.
+   본 학습 전에 `python -m src.train --smoke` 로 한 번 확인하세요.
+3. **데모 (로컬)**:
+   ```bash
    streamlit run app.py   # artifacts/best_model.pt 필요
    ```
+
+## 참고: 검증 셋
+공식 OCT2017 `val/` 은 클래스당 8장(총 32장)뿐이라 best 모델 선택 기준으로 쓰면
+사실상 무작위 선택이 됩니다. 기본값(`cfg.val_split=0.1`)은 `train/` 에서 **환자 단위**로
+검증 셋을 떼어냅니다 — 같은 환자의 스캔이 train/val 에 섞이면 val 정확도가 부풀려지기 때문입니다.
 
 ## 다음 단계
 - [ ] 베이스라인 학습 → 테스트 정확도 확인
