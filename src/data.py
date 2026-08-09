@@ -13,6 +13,7 @@ from pathlib import Path
 
 import albumentations as A
 import cv2
+import torch
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
@@ -32,23 +33,41 @@ def _patient_id(path: str) -> str:
     return match.group(1) if match else Path(path).name  # 규칙에 안 맞으면 이미지 단위로 취급
 
 
+def geometry_ops(image_size: int) -> list:
+    """모델 입력 기하 변환 — 종횡비를 유지한 채 정사각형으로 여백을 채웁니다(letterbox).
+
+    OCT 원본은 512×496, 768×496 처럼 정사각형이 아니라서 단순 resize 와 결과가 다릅니다.
+    Grad-CAM 히트맵은 이 변환을 거친 좌표계 위에서 계산되므로, 시각화 배경도
+    반드시 같은 변환을 써야 히트맵 위치가 어긋나지 않습니다. 그래서 한 곳에 모아둡니다.
+    """
+    return [
+        A.LongestMaxSize(max_size=image_size),
+        A.PadIfNeeded(image_size, image_size, border_mode=cv2.BORDER_CONSTANT),
+    ]
+
+
 def build_transforms(image_size: int, train: bool) -> A.Compose:
     if train:
         return A.Compose([
-            A.LongestMaxSize(max_size=image_size),
-            A.PadIfNeeded(image_size, image_size, border_mode=cv2.BORDER_CONSTANT),
+            *geometry_ops(image_size),
             A.HorizontalFlip(p=0.5),
             A.RandomBrightnessContrast(p=0.3),
-            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.4),
+            # ShiftScaleRotate 는 albumentations 2.x 에서 deprecated — Affine 이 같은 역할
+            A.Affine(translate_percent=(-0.05, 0.05), scale=(0.9, 1.1), rotate=(-10, 10),
+                     border_mode=cv2.BORDER_CONSTANT, p=0.4),
             A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
             ToTensorV2(),
         ])
     return A.Compose([
-        A.LongestMaxSize(max_size=image_size),
-        A.PadIfNeeded(image_size, image_size, border_mode=cv2.BORDER_CONSTANT),
+        *geometry_ops(image_size),
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),
     ])
+
+
+def build_display_transform(image_size: int) -> A.Compose:
+    """Grad-CAM 오버레이 배경용 — 정규화/텐서화 없이 모델 입력과 동일한 기하 변환만 적용."""
+    return A.Compose(geometry_ops(image_size))
 
 
 class AlbumentationsImageFolder(Dataset):
@@ -107,7 +126,7 @@ def _make_loader(dataset: Dataset, batch_size: int, num_workers: int, shuffle: b
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=torch.cuda.is_available(),  # CPU/MPS 에서는 지원되지 않아 경고만 남김
     )
 
 
