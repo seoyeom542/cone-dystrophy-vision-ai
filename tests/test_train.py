@@ -10,13 +10,14 @@ def test_checkpoint_contains_reproducible_inference_metadata():
     original_backbone = cfg.backbone
     try:
         cfg.backbone = "resnet18"
-        checkpoint = build_checkpoint(model, ["CNV", "DME", "DRUSEN", "NORMAL"])
+        checkpoint = build_checkpoint(model, ["CNV", "DME", "DRUSEN", "NORMAL"], training_mode="smoke")
     finally:
         cfg.backbone = original_backbone
 
     assert checkpoint["backbone"] == "resnet18"
     assert checkpoint["image_size"] == cfg.image_size
     assert checkpoint["normalization"]["mean"] == (0.485, 0.456, 0.406)
+    assert checkpoint["training_mode"] == "smoke"
 
     restored = build_model(checkpoint["backbone"], num_classes=4, pretrained=False)
     restored.load_state_dict(checkpoint["state_dict"])

@@ -80,7 +80,7 @@ def apply_overrides(args: argparse.Namespace) -> int | None:
     return limit_batches
 
 
-def build_checkpoint(model: nn.Module, class_names: list[str]) -> dict:
+def build_checkpoint(model: nn.Module, class_names: list[str], training_mode: str = "full") -> dict:
     """학습 가중치와 추론에 필요한 전처리 설정을 함께 저장합니다."""
     return {
         "state_dict": model.state_dict(),
@@ -88,6 +88,7 @@ def build_checkpoint(model: nn.Module, class_names: list[str]) -> dict:
         "class_names": class_names,
         "image_size": cfg.image_size,
         "normalization": {"mean": IMAGENET_MEAN, "std": IMAGENET_STD},
+        "training_mode": training_mode,
     }
 
 
@@ -186,7 +187,7 @@ def main(argv: list[str] | None = None) -> None:
 
         if not np.isnan(val_acc) and val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(build_checkpoint(model, class_names), best_model_path)
+            torch.save(build_checkpoint(model, class_names, "smoke" if args.smoke else "full"), best_model_path)
             best_model_saved = True
             print(f"  ↳ best 모델 저장 (val_acc={val_acc:.4f})")
 
