@@ -34,15 +34,24 @@ notebooks/colab_quickstart.md   # Colab 실행 가이드
 ```
 
 ## 빠른 시작
-1. **스모크 테스트** — 데이터 없이 파이프라인만 1분 안에 검증:
+1. **로컬 환경 준비** (Python 3.11+):
    ```bash
-   pip install -r requirements.txt
+   python3.11 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -r requirements.txt
+   ```
+2. **스모크 테스트** — 데이터 없이 파이프라인만 1분 안에 검증:
+   ```bash
    python scripts/make_dummy_data.py
    python -m src.train --data-root data/dummy --smoke --no-pretrained
    ```
-2. **학습 (Colab)**: [notebooks/colab_quickstart.md](notebooks/colab_quickstart.md) 참고.
+3. **자동화 테스트**:
+   ```bash
+   python -m pytest -q
+   ```
+4. **학습 (Colab)**: [notebooks/colab_quickstart.md](notebooks/colab_quickstart.md) 참고.
    본 학습 전에 `python -m src.train --smoke` 로 한 번 확인하세요.
-3. **데모 (로컬)**:
+5. **데모 (로컬)**:
    ```bash
    streamlit run app.py   # artifacts/best_model.pt 필요
    ```
@@ -53,6 +62,7 @@ notebooks/colab_quickstart.md   # Colab 실행 가이드
 검증 셋을 떼어냅니다 — 같은 환자의 스캔이 train/val 에 섞이면 val 정확도가 부풀려지기 때문입니다.
 
 ## 다음 단계
+- [x] 더미 데이터 스모크 테스트 + 자동화 테스트
 - [ ] 베이스라인 학습 → 테스트 정확도 확인
 - [ ] Grad-CAM으로 모델 주목 영역 검증
 - [ ] 클래스 불균형 처리 / 추가 증강 실험

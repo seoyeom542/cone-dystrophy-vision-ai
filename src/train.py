@@ -21,7 +21,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 from tqdm import tqdm
 
 from .config import cfg
-from .data import build_dataloaders
+from .data import IMAGENET_MEAN, IMAGENET_STD, build_dataloaders
 from .model import build_model, set_backbone_trainable
 
 
@@ -30,6 +30,14 @@ def set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def select_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -72,6 +80,17 @@ def apply_overrides(args: argparse.Namespace) -> int | None:
     return limit_batches
 
 
+def build_checkpoint(model: nn.Module, class_names: list[str]) -> dict:
+    """학습 가중치와 추론에 필요한 전처리 설정을 함께 저장합니다."""
+    return {
+        "state_dict": model.state_dict(),
+        "backbone": cfg.backbone,
+        "class_names": class_names,
+        "image_size": cfg.image_size,
+        "normalization": {"mean": IMAGENET_MEAN, "std": IMAGENET_STD},
+    }
+
+
 def run_epoch(model, loader, criterion, optimizer, device, train: bool, limit_batches=None):
     model.train() if train else model.eval()
     total_loss, correct, total = 0.0, 0, 0
@@ -103,7 +122,7 @@ def main(argv: list[str] | None = None) -> None:
     limit_batches = apply_overrides(args)
 
     set_seed(cfg.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device()
     print(f"Device: {device} | Backbone: {cfg.backbone}")
     if limit_batches is not None:
         print(f"🧪 스모크 모드: {cfg.epochs} epoch · split 당 배치 {limit_batches}개 "
@@ -121,6 +140,11 @@ def main(argv: list[str] | None = None) -> None:
 
     # 폴더 순서(=실제 라벨 순서)와 config 의 CLASS_NAMES 가 어긋나면 리포트 라벨이 통째로 밀립니다.
     class_names = loaders["train"].dataset.classes
+    if len(class_names) != cfg.num_classes:
+        raise ValueError(
+            f"데이터 클래스 수({len(class_names)})와 모델 출력 수({cfg.num_classes})가 다릅니다: "
+            f"{class_names}"
+        )
     if class_names != cfg.class_names:
         print(f"⚠️  config.CLASS_NAMES {cfg.class_names} != 폴더 순서 {class_names} — 폴더 순서를 사용합니다.")
 
@@ -138,7 +162,9 @@ def main(argv: list[str] | None = None) -> None:
         wandb.init(project=cfg.project_name, config=vars(cfg))
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
-    best_val_acc = 0.0
+    best_val_acc = float("-inf")
+    best_model_path = cfg.output_dir / "best_model.pt"
+    best_model_saved = False
 
     for epoch in range(cfg.epochs):
         # 전이학습 워밍업: 초반 N에폭은 분류 헤드만 학습
@@ -160,15 +186,16 @@ def main(argv: list[str] | None = None) -> None:
 
         if not np.isnan(val_acc) and val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(
-                {"state_dict": model.state_dict(), "backbone": cfg.backbone,
-                 "class_names": class_names},
-                cfg.output_dir / "best_model.pt",
-            )
+            torch.save(build_checkpoint(model, class_names), best_model_path)
+            best_model_saved = True
             print(f"  ↳ best 모델 저장 (val_acc={val_acc:.4f})")
 
     # 테스트셋 최종 평가 리포트
     if "test" in loaders:
+        if best_model_saved:
+            checkpoint = torch.load(best_model_path, map_location=device, weights_only=True)
+            model.load_state_dict(checkpoint["state_dict"])
+            print(f"\nBest 모델로 테스트 평가 (val_acc={best_val_acc:.4f})")
         model.eval()
         preds, gts = [], []
         with torch.no_grad():
