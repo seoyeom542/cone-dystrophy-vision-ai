@@ -23,7 +23,7 @@ from src.data import build_display_transform, build_transforms
 from src.model import build_model
 
 CKPT_PATH = Path("artifacts/best_model.pt")
-IMAGE_SIZE = 224
+DEFAULT_IMAGE_SIZE = 224
 
 
 def resolve_target_layer(model: nn.Module) -> nn.Module:
@@ -42,15 +42,15 @@ def resolve_target_layer(model: nn.Module) -> nn.Module:
 
 
 @st.cache_resource
-def load_model() -> tuple[nn.Module | None, list[str] | None]:
+def load_model() -> tuple[nn.Module | None, list[str] | None, int]:
     if not CKPT_PATH.exists():
-        return None, None
+        return None, None, DEFAULT_IMAGE_SIZE
     # 체크포인트에 담긴 건 텐서/문자열뿐이라 weights_only 로드로 충분합니다.
     ckpt = torch.load(CKPT_PATH, map_location="cpu", weights_only=True)
     model = build_model(ckpt["backbone"], num_classes=len(ckpt["class_names"]), pretrained=False)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
-    return model, ckpt["class_names"]
+    return model, ckpt["class_names"], ckpt.get("image_size", DEFAULT_IMAGE_SIZE)
 
 
 def decode_upload(uploaded) -> np.ndarray | None:
@@ -76,7 +76,7 @@ st.title("🩺 망막 OCT 이미지 분류 데모")
 st.caption("EfficientNet 전이학습 모델 · Grad-CAM 설명 포함")
 st.warning("연구·시연용 프로토타입입니다. 진단 목적으로 사용할 수 없습니다.", icon="⚠️")
 
-model, class_names = load_model()
+model, class_names, image_size = load_model()
 if model is None:
     st.info("학습된 모델(artifacts/best_model.pt)이 없습니다. 먼저 `python -m src.train` 으로 학습하세요.")
     st.stop()
@@ -90,7 +90,7 @@ if image_rgb is None:
     st.error("이미지를 읽지 못했습니다. 손상되지 않은 jpg/png 파일인지 확인해주세요.")
     st.stop()
 
-tensor = build_transforms(IMAGE_SIZE, train=False)(image=image_rgb)["image"].unsqueeze(0)
+tensor = build_transforms(image_size, train=False)(image=image_rgb)["image"].unsqueeze(0)
 with torch.no_grad():
     probs = torch.softmax(model(tensor), dim=1)[0]
 pred_idx = int(probs.argmax())
@@ -113,10 +113,10 @@ with GradCAM(model=model, target_layers=[resolve_target_layer(model)]) as cam:  
     )[0]
 
 # 히트맵은 letterbox 좌표계에서 계산되므로 배경도 같은 변환을 거쳐야 위치가 맞습니다.
-vis_base = build_display_transform(IMAGE_SIZE)(image=image_rgb)["image"].astype(np.float32) / 255.0
+vis_base = build_display_transform(image_size)(image=image_rgb)["image"].astype(np.float32) / 255.0
 overlay = show_cam_on_image(vis_base, grayscale_cam, use_rgb=True)
 
 col1, col2 = st.columns(2)
 col1.image(to_uint8(vis_base), caption="모델 입력 (letterbox)", use_container_width=True)
 col2.image(overlay, caption=f"Grad-CAM · {target_name}", use_container_width=True)
-st.caption(f"원본 {image_rgb.shape[1]}×{image_rgb.shape[0]} → 모델 입력 {IMAGE_SIZE}×{IMAGE_SIZE}")
+st.caption(f"원본 {image_rgb.shape[1]}×{image_rgb.shape[0]} → 모델 입력 {image_size}×{image_size}")

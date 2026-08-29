@@ -143,6 +143,9 @@ def build_dataloaders(
     val_split > 0 이면 train/ 에서 환자 단위로 검증 셋을 떼어내고,
     0 이면 공식 val/ 폴더(32장)를 그대로 씁니다.
     """
+    if not 0 <= val_split < 1:
+        raise ValueError(f"val_split 은 0 이상 1 미만이어야 합니다: {val_split}")
+
     loaders: dict[str, DataLoader] = {}
     train_dir = data_root / "train"
 
@@ -155,6 +158,11 @@ def build_dataloaders(
             train_idx, val_idx = split_by_patient(base.samples, val_split, seed)
             train_samples = [base.samples[i] for i in train_idx]
             val_samples = [base.samples[i] for i in val_idx]
+            if not val_samples:
+                raise ValueError(
+                    "환자 단위 검증 셋이 비었습니다. 클래스별 환자를 2명 이상 준비하거나 "
+                    "--val-split 0 으로 공식 val/ 폴더를 사용하세요."
+                )
             loaders["val"] = _make_loader(
                 AlbumentationsImageFolder(val_samples, classes, build_transforms(image_size, train=False)),
                 batch_size, num_workers, shuffle=False,

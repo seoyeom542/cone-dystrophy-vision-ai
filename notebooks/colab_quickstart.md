@@ -16,9 +16,17 @@ import kagglehub
 path = kagglehub.dataset_download("paultimothymooney/kermany2018")
 print("다운로드 경로:", path)
 
+# 압축본에 따라 폴더명 뒤에 공백이 붙을 수 있어 자동으로 탐색
+from pathlib import Path
+oct_root = next(
+    p for p in Path(path).rglob("*")
+    if p.is_dir() and p.name.strip() == "OCT2017" and (p / "train").is_dir()
+)
+print("OCT2017 경로:", oct_root)
+
 # OCT2017 폴더를 프로젝트 data/ 아래로 연결
 !mkdir -p data
-!ln -s {path}/OCT2017 data/OCT2017 2>/dev/null || true
+!ln -s "{oct_root}" data/OCT2017 2>/dev/null || true
 !ls data/OCT2017
 ```
 
